@@ -4,8 +4,9 @@ import random
 import time
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import Response
 
-from . import carparks, request_log
+from . import carparks, dashboard, request_log
 from .config import MAX_N
 from .schemas import (
     AnnotateCarparkResponse,
@@ -152,7 +153,16 @@ def ops_carparks():
     return OpsCarparksResponse(status="success", carparks=results)
 
 
-@app.get("/api/ops/active-users", response_model=OpsActiveUsersResponse)
+@app.get("/ops/dashboard")
+def ops_dashboard():
+    """
+    Renders the operations dashboard as a PNG. Reload the page/URL to
+    regenerate with current numbers. Uses the same fake_inference() data
+    source as OPS-API-1, see the note on that endpoint above for why real
+    per-carpark inference isn't run live here.
+    """
+    png_bytes = dashboard.build_dashboard_png()
+    return Response(content=png_bytes, media_type="image/png")
 def ops_active_users():
     """OPS-API-2: distinct users seen in the last N seconds, from the request log."""
     from .config import ACTIVE_USER_WINDOW_SECONDS

@@ -87,11 +87,19 @@ scale. The real fix is a background task that periodically refreshes a
 cache per carpark. This doubles as the "cache repeated requests" perf
 optimisation the spec asks about, just not implemented yet.
 
+## Ops dashboard
+
+`GET /ops/dashboard` returns a PNG: a bar chart of available spaces per
+carpark from OPS-API-1's data, plus active user and total request counts
+from the OPS-REQ-1 log. Rendered server-side with matplotlib on each
+request, just reload the URL in a browser to refresh it. Uses the same
+fake_inference() data as OPS-API-1, for the same scalability reason noted
+above, not real per-carpark YOLO inference on every dashboard load.
+
 ## Not done yet (later steps)
 
 - Kubernetes manifests, HPA, resource requests/limits (step 5)
 - Locust load testing (step 6)
-- Ops dashboard: matplotlib or Dash (step 3/7 territory)
 - Background cache/refresh for OPS-API-1 (see limitation above)
 
 ## Run with Docker (step 4)
