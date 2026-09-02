@@ -89,9 +89,55 @@ optimisation the spec asks about, just not implemented yet.
 
 ## Not done yet (later steps)
 
-- Dockerfile / container packaging, model mounted at runtime not baked
-  into the image (step 4)
 - Kubernetes manifests, HPA, resource requests/limits (step 5)
 - Locust load testing (step 6)
 - Ops dashboard: matplotlib or Dash (step 3/7 territory)
 - Background cache/refresh for OPS-API-1 (see limitation above)
+
+## Run with Docker (step 4)
+
+Build the image (run this from the project root, the folder containing
+Dockerfile, app/, images/):
+
+```bash
+docker build -t smartpark-api .
+```
+
+Run it, mounting your trained model weights from the host so they are not
+baked into the image. This satisfies the "updatable model" requirement:
+swap the weights file and restart the container, no rebuild needed.
+
+```bash
+docker run -p 8000:8000 -v "$(pwd)/model:/app/model" smartpark-api
+```
+
+On Windows (PowerShell):
+
+```powershell
+docker run -p 8000:8000 -v "${PWD}\model:/app/model" smartpark-api
+```
+
+If you don't mount a model directory, the container still runs fine. It
+falls back to the same random-number stub used locally when no
+`model.pt` is present.
+
+Test it the same way as before, just against the container instead of a
+local uvicorn process:
+
+```bash
+curl "http://127.0.0.1:8000/api/find-carparks?uuid=abc-123&n=3"
+```
+
+The `HEALTHCHECK` in the Dockerfile hits `/healthz`. Check container health
+with:
+
+```bash
+docker ps
+```
+
+Look at the STATUS column, it should say "healthy" after about 10 seconds.
+
+Note on image size: `ultralytics` pulls in `torch`, so the built image
+will be a few GB. That is expected and fine for local Docker testing, but
+worth knowing before pushing it to a container registry on a slow
+connection or worrying about GKE pull times.
