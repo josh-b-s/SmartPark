@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smartpark-api
+  labels:
+    app: smartpark-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smartpark-api
+  template:
+    metadata:
+      labels:
+        app: smartpark-api
+    spec:
+      # The init container downloads model.pt from GCS into a shared
+      # emptyDir volume before the main container starts. This is the
+      # cluster equivalent of the `-v ./model:/app/model` volume mount
+      # used for local Docker testing: the model still isn't baked into
+      # the image, so swapping it means re-uploading to GCS and restarting
+      # the deployment, not rebuilding/pushing a new image.
+      initContainers:
+        - name: fetch-model
+          image: google/cloud-sdk:slim
+          command:
+            - sh
+            - -c
+            - "gsutil cp gs://smartpark-fit3184-508304-smartpark-model/model.pt /model/model.pt"
+          volumeMounts:
+            - name: model-volume
+              mountPath: /model
+      containers:
+        - name: smartpark-api
+          # Replace with your actual pushed image if you used a different
+          # tag than :latest.
+          image: australia-southeast1-docker.pkg.dev/smartpark-fit3184-508304/smartpark-repo/smartpark-api:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SMARTPARK_MODEL_PATH
+              value: /app/model/model.pt
+          volumeMounts:
+            - name: model-volume
+              mountPath: /app/model
+          # Modest requests/limits: e2-medium nodes have 2 vCPU / 4GB each,
+          # and ultralytics + torch inference is the heaviest thing this
+          # container does. Tune these based on what you observe in the
+          # Locust benchmarking step, worth reporting on in the write-up.
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: model-volume
+          emptyDir: {}

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: smartpark-api
+spec:
+  type: LoadBalancer
+  selector:
+    app: smartpark-api
+  ports:
+    - port: 80
+      targetPort: 8000

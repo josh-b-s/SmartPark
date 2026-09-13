@@ -163,6 +163,9 @@ def ops_dashboard():
     """
     png_bytes = dashboard.build_dashboard_png()
     return Response(content=png_bytes, media_type="image/png")
+
+
+@app.get("/api/ops/active-users", response_model=OpsActiveUsersResponse)
 def ops_active_users():
     """OPS-API-2: distinct users seen in the last N seconds, from the request log."""
     from .config import ACTIVE_USER_WINDOW_SECONDS

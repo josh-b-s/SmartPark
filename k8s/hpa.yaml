@@ -1,0 +1,35 @@
+# Optional: autoscaling based on CPU usage.
+#
+# IMPORTANT: don't apply this until AFTER you've finished the Locust
+# benchmarking at fixed replica counts (1, 2, 4, 8). If this is running
+# during those tests, the autoscaler will change replica counts on its own
+# mid-test and your "at N replicas" comparisons won't mean anything.
+#
+# For the benchmarking step, control replica count manually instead:
+#   kubectl scale deployment smartpark-api --replicas=1
+#   kubectl scale deployment smartpark-api --replicas=2
+#   kubectl scale deployment smartpark-api --replicas=4
+#   kubectl scale deployment smartpark-api --replicas=8
+#
+# Once benchmarking is done, apply this if you want the deployment to
+# scale itself in general use:
+#   kubectl apply -f k8s/hpa.yaml
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: smartpark-api-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: smartpark-api
+  minReplicas: 1
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65

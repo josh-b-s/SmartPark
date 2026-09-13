@@ -9,9 +9,8 @@ deployment while still satisfying "each car park exposes /api/takephoto":
 that route exists below, parameterised by carpark_id, and could be split
 into real per-carpark services later without changing the public API.
 
-Nothing here calls YOLO yet. `fake_inference()` returns plausible-looking
-random numbers so the API contract can be built and tested end-to-end
-before the ML model is wired in (step 2).
+Nothing here calls YOLO directly, see model.py and infer_carpark() below
+for that. fake_inference() is the fallback used when no model is loaded.
 """
 
 import base64

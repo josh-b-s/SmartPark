@@ -30,7 +30,7 @@ MAX_N = int(os.environ.get("SMARTPARK_MAX_N", "20"))
 ACTIVE_USER_WINDOW_SECONDS = int(os.environ.get("SMARTPARK_ACTIVE_WINDOW", "30"))
 
 # Path to the trained YOLO weights (.pt). Deliberately NOT baked into the
-# Docker image later. This gets mounted/downloaded at container startup,
+# Docker image later, this gets mounted/downloaded at container startup,
 # per the assignment's "updatable model" requirement. If the file doesn't
 # exist, the app falls back to fake_inference() so you can still run/test
 # everything locally without the (large) weights file.

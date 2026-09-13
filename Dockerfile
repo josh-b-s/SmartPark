@@ -30,8 +30,8 @@ COPY images/ ./images
 # Deliberately NOT copying model/ here. Per the assignment's requirement
 # that the model be updatable without rebuilding the image, weights get
 # mounted in at container/pod startup instead (see README "Run with Docker"
-# section for the `-v` flag, or the k8s manifests in a later step for the
-# equivalent volume mount).
+# section for the `-v` flag, or the k8s manifests for the equivalent
+# volume mount in the cluster).
 RUN mkdir -p /app/model
 
 ENV SMARTPARK_IMAGE_DIR=/app/images
