@@ -1,0 +1,5 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+GET,/api/annotate-carpark,"ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None)",8,2026-09-16T07:40:53Z,2026-09-16T07:40:53Z
+GET,/api/find-carparks,"OSError(10013, '[WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions.')",1,2026-09-16T07:40:54Z,2026-09-16T07:40:54Z
+GET,/api/annotate-carpark,"OSError(10013, '[WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions.')",1,2026-09-16T07:40:54Z,2026-09-16T07:40:54Z
+GET,/api/find-carparks,"ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None)",21,2026-09-16T07:40:53Z,2026-09-16T07:40:53Z
