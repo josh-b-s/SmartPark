@@ -55,15 +55,21 @@ can take a few minutes at higher replica counts, each pod's init
 container has to download the model from GCS, and each main container
 has to pull the image, before it's ready.
 
-### c. Send one warm-up request per pod
+### c. Send warm-up requests, enough to statistically cover every pod
 
 Each pod pays a one-time cold-start cost the first time it loads the
-YOLO model (see the ~10s first-request latency we saw earlier).
-Left unaddressed, this would make low-replica-count runs look
-artificially slower than they really are, since a bigger fraction of
-their pods would still be "cold" when the timed run starts. Fire off a
-few requests per replica count to warm every pod before starting the
-timed run:
+YOLO model (see the ~10s+ first-request latency we saw earlier, worse
+under concurrent load). Left unaddressed, a pod that never gets a
+warm-up hit will eat that cold-start cost during the timed run instead,
+badly skewing your tail latency numbers, this is exactly what happened
+during initial testing at replicas=4: 20 warm-up requests weren't enough
+to statistically guarantee all 4 pods got hit at least once (GKE's Service
+load-balancing across pods isn't perfectly even), and the result was a
+worse max latency at 4 replicas than at 2, which doesn't reflect a real
+capacity problem, just an under-warmed pod.
+
+Rule of thumb: send at least 10x the replica count in warm-up requests
+to make it very likely every pod's been hit at least once.
 
 ```bash
 for /L %i in (1,1,10) do curl "http://EXTERNAL_IP/api/find-carparks?uuid=warmup-%i&n=2"
@@ -72,10 +78,18 @@ for /L %i in (1,1,10) do curl "http://EXTERNAL_IP/api/find-carparks?uuid=warmup-
 (That's a Windows cmd.exe loop; in PowerShell use
 `1..10 | ForEach-Object { curl "http://EXTERNAL_IP/api/find-carparks?uuid=warmup-$_&n=2" }`)
 
-Since the Service load-balances across all Ready pods, sending 10
-requests gives a good chance every pod has been hit at least once even
-at replicas=8. Not guaranteed, LoadBalancer routing isn't strictly
-round-robin, but close enough for this purpose.
+Replica count -> suggested warm-up request count:
+- 1 replica: 10 requests
+- 2 replicas: 20 requests
+- 4 replicas: 40 requests
+- 8 replicas: 80 requests
+
+Since the Service load-balances across all Ready pods, this gives a
+statistically good (not guaranteed) chance every pod's been warmed. Not
+strictly guaranteed, LoadBalancer routing isn't perfectly round-robin,
+but close enough for this purpose. If a replica count's results look
+anomalously worse than a lower replica count's, re-warm with more
+requests and rerun before trusting the number.
 
 ### d. Run the timed load test
 
