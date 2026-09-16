@@ -45,7 +45,7 @@ docker push australia-southeast1-docker.pkg.dev/smartpark-fit3184-508304/smartpa
 
 ## 5. Create the GKE cluster (this is where billing starts, see gcp/teardown.md)
 
-gcloud container clusters create smartpark-cluster --zone australia-southeast1-a --num-nodes=2 --machine-type=e2-medium
+gcloud container clusters create smartpark-cluster --zone australia-southeast1-a --num-nodes=1 --machine-type=e2-standard-4
 
 gcloud container clusters get-credentials smartpark-cluster --zone australia-southeast1-a
 

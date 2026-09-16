@@ -6,6 +6,14 @@ metadata:
     app: smartpark-api
 spec:
   replicas: 1
+  strategy:
+    # Recreate instead of the RollingUpdate default: this cluster's small
+    # nodes don't have spare capacity to run old and new pods side by side
+    # briefly during a rollout. Recreate kills the old pod first, then
+    # starts the new one, trading a few seconds of downtime for not
+    # needing double capacity. Fine for dev/test, worth reconsidering for
+    # anything closer to production.
+    type: Recreate
   selector:
     matchLabels:
       app: smartpark-api
@@ -49,10 +57,10 @@ spec:
           # Locust benchmarking step, worth reporting on in the write-up.
           resources:
             requests:
-              cpu: "500m"
+              cpu: "250m"
               memory: "1Gi"
             limits:
-              cpu: "1"
+              cpu: "4"
               memory: "2Gi"
           readinessProbe:
             httpGet:
