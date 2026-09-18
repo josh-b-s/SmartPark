@@ -43,6 +43,18 @@ and open the resulting `annotated_CBD_001.png`.
 - `GET /ops/dashboard`: a matplotlib-rendered PNG dashboard, see below.
 - `GET /healthz`: liveness/readiness probe target for Kubernetes.
 
+## Application logging (OPS-REQ)
+
+Every request, on every endpoint, is logged as one structured line via a
+FastAPI middleware in `main.py`: timestamp and severity from Python's
+logging formatter, `smartpark` as the service name, plus a `request_id`
+(the caller's own `uuid` query param when present, e.g. on
+`find-carparks`, otherwise a generated one), method, path, status code,
+and duration in ms. Unhandled exceptions are logged with a full traceback
+via `logger.exception` before re-raising. On GKE this output goes to
+stdout, which Cloud Logging picks up automatically, no extra
+configuration needed.
+
 ## Real YOLO inference
 
 `app/model.py` loads the model lazily on first use from `model/model.pt`

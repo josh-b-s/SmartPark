@@ -2,8 +2,9 @@ import asyncio
 import logging
 import random
 import time
+import uuid as uuid_module
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from . import carparks, dashboard, request_log
@@ -25,6 +26,43 @@ logging.basicConfig(
 logger = logging.getLogger("smartpark")
 
 app = FastAPI(title="SmartPark API", version="0.1.0")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """
+    OPS-REQ: comprehensive application logging. Every request, on every
+    endpoint, gets one structured log line with a timestamp (from
+    logging's own formatter), severity level, service name ("smartpark",
+    set in the formatter below), and a unique id for tracing this specific
+    request through the logs.
+
+    Uses the caller-supplied `uuid` query param when present (so a
+    find-carparks call's log line matches the user's own uuid, useful for
+    correlating a specific user's activity), otherwise generates one, so
+    every request is traceable even on endpoints that don't take a uuid
+    (annotate-carpark, ops endpoints, healthz).
+    """
+    request_id = request.query_params.get("uuid") or str(uuid_module.uuid4())
+    start = time.perf_counter()
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        logger.exception(
+            "request_id=%s method=%s path=%s status=500 duration_ms=%.1f (unhandled exception)",
+            request_id, request.method, request.url.path, elapsed_ms,
+        )
+        raise
+
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    log_fn = logger.info if response.status_code < 400 else logger.warning
+    log_fn(
+        "request_id=%s method=%s path=%s status=%s duration_ms=%.1f",
+        request_id, request.method, request.url.path, response.status_code, elapsed_ms,
+    )
+    return response
 
 
 @app.get("/healthz")
