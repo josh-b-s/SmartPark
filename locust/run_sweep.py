@@ -30,9 +30,20 @@ import os
 import subprocess
 import sys
 
-RUN_SECONDS = 45
+RUN_SECONDS = 90
 SPAWN_RATE = 5
 FAILURE_THRESHOLD = 0.05  # 5%
+
+
+def _safe_float(value, default=float("nan")):
+    """Locust writes 'N/A' for percentile columns when zero requests
+    completed in the window (common at high concurrency / low replica
+    counts, where requests are still in-flight when the run ends).
+    Treat that as missing data rather than crashing."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def run_one_level(host: str, label: str, users: int) -> dict:
@@ -59,16 +70,25 @@ def run_one_level(host: str, label: str, users: int) -> dict:
     failure_count = int(agg["Failure Count"])
     failure_rate = (failure_count / request_count) if request_count else 1.0
 
+    if request_count == 0:
+        print(
+            f"WARNING: u={users} completed 0 requests in {RUN_SECONDS}s "
+            f"(all still in-flight when the run ended). This itself is a "
+            f"valid result: it means this replica count cannot clear this "
+            f"concurrency level within a reasonable time. Recorded as 100% "
+            f"failure rate; latency fields are unavailable (NaN)."
+        )
+
     return {
         "users": users,
         "request_count": request_count,
         "failure_count": failure_count,
         "failure_rate": failure_rate,
-        "avg_response_ms": float(agg["Average Response Time"]),
-        "median_response_ms": float(agg["Median Response Time"]),
-        "p95_ms": float(agg["95%"]),
-        "p99_ms": float(agg["99%"]),
-        "requests_per_sec": float(agg["Requests/s"]),
+        "avg_response_ms": _safe_float(agg["Average Response Time"]),
+        "median_response_ms": _safe_float(agg["Median Response Time"]),
+        "p95_ms": _safe_float(agg["95%"]),
+        "p99_ms": _safe_float(agg["99%"]),
+        "requests_per_sec": _safe_float(agg["Requests/s"], default=0.0),
     }
 
 
@@ -95,9 +115,13 @@ def main():
     print(f"{'Users':>6} {'Fail%':>7} {'Avg ms':>9} {'Median ms':>10} {'p95 ms':>8} {'p99 ms':>8} {'req/s':>7}")
     max_users_under_threshold = None
     for r in results:
+        avg_str = f"{r['avg_response_ms']:.0f}" if r['avg_response_ms'] == r['avg_response_ms'] else "N/A"
+        med_str = f"{r['median_response_ms']:.0f}" if r['median_response_ms'] == r['median_response_ms'] else "N/A"
+        p95_str = f"{r['p95_ms']:.0f}" if r['p95_ms'] == r['p95_ms'] else "N/A"
+        p99_str = f"{r['p99_ms']:.0f}" if r['p99_ms'] == r['p99_ms'] else "N/A"
         print(
-            f"{r['users']:>6} {r['failure_rate']*100:>6.1f}% {r['avg_response_ms']:>9.0f} "
-            f"{r['median_response_ms']:>10.0f} {r['p95_ms']:>8.0f} {r['p99_ms']:>8.0f} {r['requests_per_sec']:>7.2f}"
+            f"{r['users']:>6} {r['failure_rate']*100:>6.1f}% {avg_str:>9} "
+            f"{med_str:>10} {p95_str:>8} {p99_str:>8} {r['requests_per_sec']:>7.2f}"
         )
         if r["failure_rate"] < FAILURE_THRESHOLD:
             max_users_under_threshold = r["users"]
