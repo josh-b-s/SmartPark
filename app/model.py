@@ -60,7 +60,7 @@ def model_available() -> bool:
     return _get_model() is not None
 
 
-def run_inference(image_bytes: bytes) -> dict:
+def run_inference(image_bytes: bytes, annotate: bool = True) -> dict:
     """
     Blocking call. Run in a thread pool by the caller.
 
@@ -69,8 +69,11 @@ def run_inference(image_bytes: bytes) -> dict:
             "available_spaces": int,
             "occupied_spaces": int,
             "confidence_score": float,       # mean confidence over empty-space detections
-            "annotated_image_bytes": bytes,  # PNG, boxes drawn
+            "annotated_image_bytes": bytes | None,  # PNG with boxes drawn; None if annotate=False
         }
+
+    annotate=False skips result.plot() and the PNG encode, which is wasted
+    work for callers (find-carparks) that only need the counts.
     """
     model = _get_model()
     if model is None:
@@ -95,16 +98,19 @@ def run_inference(image_bytes: bytes) -> dict:
     available_spaces = len(empty_confidences)
     confidence_score = round(sum(empty_confidences) / len(empty_confidences), 4) if empty_confidences else 0.0
 
-    # result.plot() returns an RGB numpy array (BGR->RGB already handled the
-    # way the reference script does it: result.plot()[:, :, ::-1])
-    annotated_array = result.plot()[:, :, ::-1]
-    annotated_image = Image.fromarray(annotated_array)
-    buf = io.BytesIO()
-    annotated_image.save(buf, format="PNG")
+    annotated_bytes = None
+    if annotate:
+        # result.plot() returns a BGR numpy array; [:, :, ::-1] converts to RGB
+        # the same way the reference script does.
+        annotated_array = result.plot()[:, :, ::-1]
+        annotated_image = Image.fromarray(annotated_array)
+        buf = io.BytesIO()
+        annotated_image.save(buf, format="PNG")
+        annotated_bytes = buf.getvalue()
 
     return {
         "available_spaces": available_spaces,
         "occupied_spaces": occupied_count,
         "confidence_score": confidence_score,
-        "annotated_image_bytes": buf.getvalue(),
+        "annotated_image_bytes": annotated_bytes,
     }

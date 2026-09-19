@@ -33,7 +33,11 @@ class TakePhotoResponse(BaseModel):
 class OpsCarpark(BaseModel):
     carpark_id: str
     name: Optional[str] = None
-    available_spaces: int
+    # None until the first inference for this car park has completed.
+    available_spaces: Optional[int] = None
+    confidence_score: Optional[float] = None
+    last_updated: Optional[str] = None  # UTC ISO-8601 time of the reading
+    source: Optional[str] = None  # "yolo" or "fallback_random" (no model loaded)
 
 
 class OpsCarparksResponse(BaseModel):

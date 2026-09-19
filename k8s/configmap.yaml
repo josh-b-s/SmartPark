@@ -1,0 +1,35 @@
+# Runtime configuration for the SmartPark pods (car park registry, caching,
+# background refresh). Pods read these as environment variables at startup
+# (see envFrom in deployment.yaml), so after changing a value:
+#
+#   kubectl apply -f k8s/configmap.yaml
+#   kubectl rollout restart deployment smartpark-api
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smartpark-config
+data:
+  # Number of car parks to generate (must be 10-99, or the app refuses to start).
+  SMARTPARK_NUM_CARPARKS: "20"
+
+  # Largest n accepted by /api/find-carparks; bigger values are clamped to this.
+  SMARTPARK_MAX_N: "20"
+
+  # Where the platform sends its HTTP GET /api/takephoto camera requests. By
+  # default the cameras are simulated by the app itself (port 8000 in the pod).
+  SMARTPARK_CAMERA_BASE_URL: "http://127.0.0.1:8000"
+
+  # Per-user cache for /api/find-carparks (same uuid and n), in seconds.
+  # "0" = off. It is off here so benchmark runs stay comparable, since Locust
+  # users reuse their uuid. Set e.g. "10" to demo caching.
+  SMARTPARK_USER_CACHE_TTL: "0"
+
+  # Background refresh of the OPS-API-1 / dashboard readings, in seconds.
+  # "0" = off (OPS-API-1 then only shows readings produced by user traffic).
+  SMARTPARK_OPS_REFRESH_SECONDS: "60"
+
+  # Optional: to define car parks explicitly (own ids, names, camera URLs)
+  # instead of generating them, add a carparks.json key here containing a JSON
+  # list, mount it into the pod as a file, and set SMARTPARK_CARPARK_CONFIG to
+  # its path. See the README, "Configuring car parks".

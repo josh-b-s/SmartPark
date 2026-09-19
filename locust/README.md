@@ -35,7 +35,7 @@ for a focused test session, don't leave it running afterward, see
 collapse under a constant 30-user load (64.6% failure rate), the
 clearest way to see a single replica overwhelmed.
 
-**Method B (concurrency sweep, section 3)** using `run_sweep.py` is what
+**Method B (concurrency sweep, below)** using `run_sweep.py` is what
 actually produced the report's required results table and the two
 latency/throughput plots, since those need data across multiple
 concurrency levels per replica count, not one fixed point.
@@ -82,12 +82,30 @@ capacity problem, just an under-warmed pod.
 Rule of thumb: send at least 10x the replica count in warm-up requests
 to make it very likely every pod's been hit at least once.
 
+Pick the loop for your shell, and change `10` to the request count for
+your replica count (see the table below). Use a fresh set of uuids each
+time, or the user cache (if you have turned it on) would answer repeats
+without touching the model.
+
+bash / zsh / Git Bash:
+
 ```bash
-for /L %i in (1,1,10) do curl "http://EXTERNAL_IP/api/find-carparks?uuid=warmup-%i&n=2"
+for i in $(seq 1 10); do curl -s -o /dev/null "http://EXTERNAL_IP/api/find-carparks?uuid=warmup-$i&n=2"; done
 ```
 
-(That's a Windows cmd.exe loop; in PowerShell use
-`1..10 | ForEach-Object { curl "http://EXTERNAL_IP/api/find-carparks?uuid=warmup-$_&n=2" }`)
+PowerShell:
+
+```powershell
+1..10 | ForEach-Object { curl.exe -s -o NUL "http://EXTERNAL_IP/api/find-carparks?uuid=warmup-$_&n=2" }
+```
+
+Windows cmd.exe:
+
+```bat
+for /L %i in (1,1,10) do curl -s -o NUL "http://EXTERNAL_IP/api/find-carparks?uuid=warmup-%i&n=2"
+```
+
+(In a `.bat` file, write `%%i` instead of `%i`.)
 
 Replica count -> suggested warm-up request count:
 - 1 replica: 10 requests
@@ -141,11 +159,32 @@ latency: Locust doesn't count a request still in-flight when the test
 ends as a failure, so at very high concurrency on a struggling
 configuration, `0% failures` can mean "almost nothing completed at all"
 rather than genuine success, `run_sweep.py` prints a warning when a
-level completes zero requests. When defining "max sustainable users" for
-the report, use a latency ceiling (e.g. average response time under
-30s) rather than failure rate alone.
+level completes zero requests. "Max sustainable users" is therefore defined
+by a latency ceiling: the highest tested concurrency where the average
+response time stayed under 30s and requests actually completed. That is the
+`Max sustainable users` line the script prints (change the ceiling with
+`--latency-ceiling SECONDS`), and it is the definition the report uses.
 
 ## 3. After all runs
+
+Once `replicas_1`, `replicas_2`, `replicas_4` and `replicas_8` each have a
+`*_summary.csv` in `locust/results/`:
+
+1. Copy the `Max sustainable users` line and the average-latency figure at
+   that level from each run into the report's results table.
+2. Generate the figures (run from the project root):
+
+   ```bash
+   python locust/plot_results.py
+   ```
+
+   This writes `report/figure1_latency_vs_users.png` (average latency),
+   `report/figure2_p95_latency_vs_users.png` (p95 latency) and
+   `report/figure3_throughput_vs_users.png` (throughput), one line per replica
+   count, with gaps where a level completed no requests.
+3. Keep the CSVs in `locust/results/` so the report numbers can be traced to
+   the raw data.
+4. Tear down (next section) so the cluster stops billing.
 
 ## 4. Teardown
 

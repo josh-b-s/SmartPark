@@ -18,6 +18,7 @@ import uuid
 
 from locust import HttpUser, between, task
 
+# Must match the deployed SMARTPARK_NUM_CARPARKS (default 20), or some ids will not exist.
 CARPARK_IDS = [f"CBD_{i:03d}" for i in range(1, 21)]
 
 

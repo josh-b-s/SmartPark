@@ -1,5 +1,8 @@
 # Run this at the end of every session touching GCP.
 #
+# (Project ID, region and bucket names here are the original author's;
+# substitute your own, see the note at the top of gcp/commands.md.)
+#
 # The cluster and its LoadBalancer are the two things that cost money by
 # the hour, whether or not you're actively using them. Nothing else here
 # (Artifact Registry storage, the GCS bucket) costs meaningfully more than

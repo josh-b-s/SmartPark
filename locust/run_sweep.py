@@ -16,12 +16,13 @@ next level starts. Results for each level are saved to
 locust/results/<label>_u<N>_stats.csv, and a combined summary CSV is
 written to locust/results/<label>_summary.csv.
 
-"Max users" (for the report's Results Table) is defined here as the
-highest tested concurrency level where the failure rate stayed under
-FAILURE_THRESHOLD. Pick the threshold to match what you consider
-"acceptable" service, the default (5%) is a reasonable, defensible
-starting point, adjust it and note your reasoning in the report if you
-change it.
+"Max users" (for the report's Results Table) is defined the same way as in
+the report: the highest tested concurrency level where the average response
+time stayed under a latency ceiling (default 30s, --latency-ceiling) AND
+requests actually completed. Failure rate alone is misleading here, since
+Locust does not count a request still in flight at the end of the run as a
+failure, so a stalled system can show 0% failures. Failure rate and
+throughput are still printed for context.
 """
 
 import argparse
@@ -32,7 +33,7 @@ import sys
 
 RUN_SECONDS = 90
 SPAWN_RATE = 5
-FAILURE_THRESHOLD = 0.05  # 5%
+DEFAULT_LATENCY_CEILING_S = 30.0
 
 
 def _safe_float(value, default=float("nan")):
@@ -97,6 +98,10 @@ def main():
     parser.add_argument("--host", required=True, help="e.g. http://34.116.100.152")
     parser.add_argument("--label", required=True, help="e.g. replicas_1")
     parser.add_argument("--users", nargs="+", type=int, required=True, help="concurrency levels to test, e.g. 5 10 20 30")
+    parser.add_argument(
+        "--latency-ceiling", type=float, default=DEFAULT_LATENCY_CEILING_S,
+        help="avg response time (seconds) a level must stay under to count as sustainable (default 30)",
+    )
     args = parser.parse_args()
 
     os.makedirs("locust/results", exist_ok=True)
@@ -113,7 +118,7 @@ def main():
 
     print(f"\n=== Summary for {args.label} ===")
     print(f"{'Users':>6} {'Fail%':>7} {'Avg ms':>9} {'Median ms':>10} {'p95 ms':>8} {'p99 ms':>8} {'req/s':>7}")
-    max_users_under_threshold = None
+    max_sustainable_users = None
     for r in results:
         avg_str = f"{r['avg_response_ms']:.0f}" if r['avg_response_ms'] == r['avg_response_ms'] else "N/A"
         med_str = f"{r['median_response_ms']:.0f}" if r['median_response_ms'] == r['median_response_ms'] else "N/A"
@@ -123,10 +128,13 @@ def main():
             f"{r['users']:>6} {r['failure_rate']*100:>6.1f}% {avg_str:>9} "
             f"{med_str:>10} {p95_str:>8} {p99_str:>8} {r['requests_per_sec']:>7.2f}"
         )
-        if r["failure_rate"] < FAILURE_THRESHOLD:
-            max_users_under_threshold = r["users"]
+        avg_s = r["avg_response_ms"] / 1000
+        # NaN (nothing completed) compares False, so a stalled level never qualifies.
+        if r["request_count"] > 0 and avg_s < args.latency_ceiling:
+            if max_sustainable_users is None or r["users"] > max_sustainable_users:
+                max_sustainable_users = r["users"]
 
-    print(f"\nMax users under {FAILURE_THRESHOLD*100:.0f}% failure rate: {max_users_under_threshold}")
+    print(f"\nMax sustainable users (avg response under {args.latency_ceiling:.0f}s): {max_sustainable_users}")
     print(f"Full summary saved to {summary_path}")
 
 

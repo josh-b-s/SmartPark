@@ -45,6 +45,11 @@ spec:
           image: australia-southeast1-docker.pkg.dev/smartpark-fit3184-508304/smartpark-repo/smartpark-api:latest
           ports:
             - containerPort: 8000
+          # Car park count, caching and refresh settings live in the
+          # smartpark-config ConfigMap (k8s/configmap.yaml).
+          envFrom:
+            - configMapRef:
+                name: smartpark-config
           env:
             - name: SMARTPARK_MODEL_PATH
               value: /app/model/model.pt

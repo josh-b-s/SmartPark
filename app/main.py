@@ -1,14 +1,16 @@
 import asyncio
+import contextlib
 import logging
 import random
 import time
 import uuid as uuid_module
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
-from . import carparks, dashboard, request_log
-from .config import MAX_N
+from . import cache, carparks, dashboard, refresher, request_log
+from .config import MAX_N, OPS_REFRESH_SECONDS, USER_CACHE_TTL_SECONDS
 from .schemas import (
     AnnotateCarparkResponse,
     CarparkResult,
@@ -25,7 +27,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger("smartpark")
 
-app = FastAPI(title="SmartPark API", version="0.1.0")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = None
+    if OPS_REFRESH_SECONDS > 0:
+        task = asyncio.create_task(refresher.run_forever())
+    else:
+        logger.info("Ops refresher disabled (SMARTPARK_OPS_REFRESH_SECONDS=0)")
+    logger.info(
+        "Started: %d car parks, user_cache_ttl=%ss, ops_refresh=%ss",
+        len(carparks.list_carpark_ids()), USER_CACHE_TTL_SECONDS, OPS_REFRESH_SECONDS,
+    )
+    yield
+    if task:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    await carparks.close_client()
+
+
+app = FastAPI(title="SmartPark API", version="0.2.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -83,8 +106,20 @@ async def find_carparks(
         # "what if n > 100?" - the spec explicitly asks us to think about
         # this. We clamp rather than error, so well-behaved clients still
         # get a usable (if smaller) response instead of a hard failure.
-        logger.warning("uuid=%s requested n=%s > MAX_N=%s, clamping", uuid, n, MAX_N)
+        logger.warning("request_id=%s requested n=%s > MAX_N=%s, clamping", uuid, n, MAX_N)
         n = MAX_N
+
+    # Repeat requests from the same user (same uuid and n) within the TTL
+    # are answered from cache. Off by default (TTL 0), see config.py.
+    cached = cache.user_get(uuid, n)
+    if cached is not None:
+        logger.info("request_id=%s find-carparks served from user cache", uuid)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        return FindCarparksResponse(
+            uuid=uuid, status="success", msg="success",
+            speed_inference=f"{elapsed_ms:.1f} ms", requested_n=n,
+            results=[CarparkResult(**r) for r in cached],
+        )
 
     all_ids = carparks.list_carpark_ids()
     if not all_ids:
@@ -95,15 +130,30 @@ async def find_carparks(
     sample_size = min(len(all_ids), 2 * n)
     sampled_ids = random.sample(all_ids, sample_size)
 
-    # Run YOLO inference for each sampled carpark concurrently in worker
-    # threads. carparks.infer_carpark() is a blocking, CPU-bound call.
-    # asyncio.to_thread keeps it off the event loop so other requests
-    # (including other users' find-carparks calls) aren't stalled while
-    # this one's inference runs. gather() also lets the sampled carparks'
-    # inference happen in parallel rather than one-by-one.
-    inference_results = await asyncio.gather(
-        *[asyncio.to_thread(carparks.infer_carpark, cid) for cid in sampled_ids]
+    # For each sampled carpark: HTTP GET to its camera (async), then YOLO
+    # inference in a worker thread (CPU-bound, so it must stay off the event
+    # loop). gather() runs all sampled carparks concurrently. annotate=False
+    # because this endpoint never returns the annotated image.
+    outcomes = await asyncio.gather(
+        *[carparks.infer_carpark(cid, annotate=False) for cid in sampled_ids],
+        return_exceptions=True,
     )
+
+    inference_results = []
+    for cid, outcome in zip(sampled_ids, outcomes):
+        if isinstance(outcome, Exception):
+            logger.error("request_id=%s carpark_id=%s inference failed: %s", uuid, cid, outcome)
+        else:
+            inference_results.append(outcome)
+
+    if not inference_results:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        body = FindCarparksResponse(
+            uuid=uuid, status="error",
+            msg="All sampled car park cameras failed, please retry",
+            speed_inference=f"{elapsed_ms:.1f} ms", requested_n=n, results=[],
+        )
+        return JSONResponse(status_code=503, content=body.model_dump())
 
     scored = [
         CarparkResult(
@@ -116,12 +166,16 @@ async def find_carparks(
     ]
 
     top_n = sorted(scored, key=lambda r: r.available_spaces, reverse=True)[:n]
+    cache.user_put(uuid, n, [r.model_dump() for r in top_n])
+
+    failed = len(sampled_ids) - len(inference_results)
+    msg = "success" if not failed else f"partial: {failed} of {len(sampled_ids)} cameras failed"
     elapsed_ms = (time.perf_counter() - start) * 1000
 
     return FindCarparksResponse(
         uuid=uuid,
         status="success",
-        msg="success",
+        msg=msg,
         speed_inference=f"{elapsed_ms:.1f} ms",
         requested_n=n,
         results=top_n,
@@ -139,8 +193,16 @@ async def annotate_carpark(carpark_id: str = Query(...)):
             image_base64="",
         )
 
-    # Off the event loop, same reasoning as find_carparks above.
-    result = await asyncio.to_thread(carparks.infer_carpark, carpark_id)
+    try:
+        result = await carparks.infer_carpark(carpark_id, annotate=True)
+    except carparks.CameraError as exc:
+        logger.error("request_id=annotate carpark_id=%s camera failed: %s", carpark_id, exc)
+        body = AnnotateCarparkResponse(
+            carpark_id=carpark_id, status="error",
+            msg=f"Camera unavailable: {exc}", image_base64="",
+        )
+        return JSONResponse(status_code=502, content=body.model_dump())
+
     return AnnotateCarparkResponse(
         carpark_id=carpark_id,
         status="success",
@@ -149,12 +211,13 @@ async def annotate_carpark(carpark_id: str = Query(...)):
     )
 
 
-@app.get("/api/carparks/{carpark_id}/takephoto", response_model=TakePhotoResponse)
-def takephoto(carpark_id: str):
+@app.get("/api/takephoto", response_model=TakePhotoResponse)
+def takephoto(carpark_id: str = Query(..., description="Which car park's camera to read")):
     """
-    Simulates a car park's own camera endpoint. In the architecture diagram
-    this is a separate device the platform polls; here it's just a route on
-    the same app for simplicity (see docstring in carparks.py).
+    Simulated car park camera: GET /api/takephoto returns a base64 image
+    picked at random from the dataset. The platform reaches it with a real
+    HTTP GET using each car park's camera_url (see carparks.py). By default
+    that URL points back at this route, but it can point at any host.
     """
     carpark = carparks.get_carpark(carpark_id)
     if carpark is None:
@@ -170,24 +233,33 @@ def takephoto(carpark_id: str):
 @app.get("/api/ops/carparks", response_model=OpsCarparksResponse)
 def ops_carparks():
     """
-    OPS-API-1: all carparks + current available spots.
+    OPS-API-1: all carparks with their latest available-spaces reading.
 
-    Deliberately uses fake_inference() here rather than running real YOLO
-    inference on every carpark on every ops call. With up to 99 carparks
-    configured, that would mean up to 99 blocking model.predict() calls per
-    dashboard refresh, which doesn't scale. A real version of this should
-    read from a periodically-refreshed cache (e.g. a background task that
-    re-runs inference on each carpark every N seconds and stores the
-    result) rather than doing it live. Worth implementing as the
-    "repeated requests can be cached" optimisation the spec asks about.
+    Reads the per-pod ops cache, which is filled by real YOLO inference:
+    from user traffic (find-carparks / annotate-carpark) and from a
+    background refresher (refresher.py) that re-checks any car park whose
+    reading is older than SMARTPARK_OPS_REFRESH_SECONDS. This endpoint never
+    runs inference itself, so it stays cheap however many car parks exist.
+    A car park with no reading yet shows available_spaces null.
     """
+    readings = cache.snapshot()
     results = []
     for cid in carparks.list_carpark_ids():
         carpark = carparks.get_carpark(cid)
-        available, _ = carparks.fake_inference(carpark)
-        results.append(
-            OpsCarpark(carpark_id=cid, name=carpark.name, available_spaces=available)
-        )
+        reading = readings.get(cid)
+        if reading is None:
+            results.append(OpsCarpark(carpark_id=cid, name=carpark.name))
+        else:
+            results.append(
+                OpsCarpark(
+                    carpark_id=cid,
+                    name=carpark.name,
+                    available_spaces=reading["available_spaces"],
+                    confidence_score=reading["confidence_score"],
+                    last_updated=cache.iso(reading["updated_at"]),
+                    source=reading["source"],
+                )
+            )
     return OpsCarparksResponse(status="success", carparks=results)
 
 
@@ -195,9 +267,8 @@ def ops_carparks():
 def ops_dashboard():
     """
     Renders the operations dashboard as a PNG. Reload the page/URL to
-    regenerate with current numbers. Uses the same fake_inference() data
-    source as OPS-API-1, see the note on that endpoint above for why real
-    per-carpark inference isn't run live here.
+    regenerate with current numbers. Uses the same cached readings as
+    OPS-API-1, see the note on that endpoint for how they are kept fresh.
     """
     png_bytes = dashboard.build_dashboard_png()
     return Response(content=png_bytes, media_type="image/png")

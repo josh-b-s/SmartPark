@@ -2,7 +2,15 @@
 #
 # These are plain one-liners (no backslash line continuations), so they
 # paste safely into PowerShell, cmd, or bash without needing different
-# syntax per shell. Run them in order, from the `release` folder.
+# syntax per shell. Run them in order, from the project root (the folder
+# containing Dockerfile, app/, k8s/ and gcp/).
+#
+# BEFORE YOU START: the project ID, bucket and repository names below belong to
+# the original author and will not exist in your account. Replace them (here,
+# in gcp/teardown.md, and in k8s/deployment.yaml, which has the bucket name in
+# the init container and the image path). README.md, "Deploy to GKE", has a
+# one-line sed command that does this in every file. Bucket names must be
+# globally unique.
 #
 # Fill in these once and reuse them everywhere below:
 #   PROJECT_ID = smartpark-fit3184-508304
@@ -71,6 +79,8 @@ gcloud components install gke-gcloud-auth-plugin
 
 ## 6. Deploy
 
+kubectl apply -f k8s/configmap.yaml
+
 kubectl apply -f k8s/deployment.yaml
 
 kubectl apply -f k8s/service.yaml
@@ -79,6 +89,11 @@ kubectl get pods
 
 kubectl get service smartpark-api
 
+# The ConfigMap (car park count, caching, refresh interval) must exist before
+# the Deployment, or the pods fail to start. To change a setting later:
+#   kubectl apply -f k8s/configmap.yaml
+#   kubectl rollout restart deployment smartpark-api
+#
 # Wait for the EXTERNAL-IP column on the service to populate (can take a
 # minute or two), then test against it same as you tested locally:
 # curl "http://EXTERNAL_IP/api/find-carparks?uuid=abc-123&n=3"
