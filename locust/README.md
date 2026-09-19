@@ -29,7 +29,18 @@ Note the cost bump: 2x `e2-standard-4` is about $0.38/hr combined. Fine
 for a focused test session, don't leave it running afterward, see
 `gcp/teardown.md`.
 
-## 2. For each replica count: scale, warm up, run
+## 2. Two testing methods, both used in this project's final report
+
+**Method A (fixed load)** below shows the dramatic replicas=1 failure
+collapse under a constant 30-user load (64.6% failure rate), the
+clearest way to see a single replica overwhelmed.
+
+**Method B (concurrency sweep, section 3)** using `run_sweep.py` is what
+actually produced the report's required results table and the two
+latency/throughput plots, since those need data across multiple
+concurrency levels per replica count, not one fixed point.
+
+## Method A: fixed load, one point per replica count
 
 Repeat this block four times, once each for `--replicas=1`, `2`, `4`,
 `8`. Get your service's external IP first if you don't have it handy:
@@ -107,13 +118,34 @@ locust -f locust/locustfile.py --host=http://EXTERNAL_IP -u 30 -r 5 --run-time 2
 Change the `--csv` suffix (`replicas_2`, `replicas_4`, `replicas_8`) each
 time so results don't overwrite each other.
 
-## 3. After all four runs
-
 Each `*_stats.csv` has a row per endpoint plus an `Aggregated` row with
-request count, failure count, median/p95/p99 latency, and requests/second,
-exactly what the spec's benchmark report asks for (latency, throughput,
-failure rates). Pull the `Aggregated` row from each of the four files to
-build your comparison chart.
+request count, failure count, median/p95/p99 latency, and requests/second.
+
+## Method B: concurrency sweep (produces the report's table and plots)
+
+After warming up a given replica count (same warm-up step as Method A
+above), run one command instead of a single fixed Locust invocation:
+
+```bash
+python locust/run_sweep.py --host http://EXTERNAL_IP --label replicas_1 --users 5 10 20 30
+```
+
+This runs 90-second tests at each concurrency level in sequence (5, 10,
+20, 30 users), and prints a summary table plus saves
+`locust/results/replicas_1_summary.csv`. Repeat for `replicas_2`,
+`replicas_4`, `replicas_8` (with the matching warm-up request count
+first each time).
+
+Watch the `req/s` column, not just failure rate, alongside average
+latency: Locust doesn't count a request still in-flight when the test
+ends as a failure, so at very high concurrency on a struggling
+configuration, `0% failures` can mean "almost nothing completed at all"
+rather than genuine success, `run_sweep.py` prints a warning when a
+level completes zero requests. When defining "max sustainable users" for
+the report, use a latency ceiling (e.g. average response time under
+30s) rather than failure rate alone.
+
+## 3. After all runs
 
 ## 4. Teardown
 

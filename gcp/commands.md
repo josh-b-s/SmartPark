@@ -45,9 +45,29 @@ docker push australia-southeast1-docker.pkg.dev/smartpark-fit3184-508304/smartpa
 
 ## 5. Create the GKE cluster (this is where billing starts, see gcp/teardown.md)
 
-gcloud container clusters create smartpark-cluster --zone australia-southeast1-a --num-nodes=2 --machine-type=e2-medium
+Use `e2-standard-4`, not a smaller machine type. `e2-medium` was tried
+first and hit an `Insufficient cpu` scheduling failure even at a single
+replica, its ~940m allocatable CPU per node (after system pod reservations)
+isn't enough headroom for this workload's request/limit sizing. Use 2
+nodes if you plan to run the Locust replica-scaling tests (keeps node
+count fixed across all four replica counts, so replica count is the only
+variable that changes), or 1 node if you're just doing a quick functional
+check.
 
+```bash
+gcloud container clusters create smartpark-cluster --zone australia-southeast1-a --num-nodes=2 --machine-type=e2-standard-4
+```
+
+```bash
 gcloud container clusters get-credentials smartpark-cluster --zone australia-southeast1-a
+```
+
+If `kubectl` warns `gke-gcloud-auth-plugin ... was not found`, run this
+once, then re-run the `get-credentials` command above:
+
+```bash
+gcloud components install gke-gcloud-auth-plugin
+```
 
 ## 6. Deploy
 
@@ -63,4 +83,16 @@ kubectl get service smartpark-api
 # minute or two), then test against it same as you tested locally:
 # curl "http://EXTERNAL_IP/api/find-carparks?uuid=abc-123&n=3"
 
-## 7. When you're done for the session, TEAR IT DOWN (see gcp/teardown.md)
+## 7. Optional: enable autoscaling (HPA)
+
+Tested and confirmed working: under sustained load it scaled 1 to 4 to 8
+replicas within about 20 seconds. Don't apply this before Locust
+benchmarking at fixed replica counts, remove it first (see
+`k8s/hpa.yaml`'s header comment and `locust/README.md`).
+
+```bash
+kubectl apply -f k8s/hpa.yaml
+kubectl get hpa
+```
+
+## 8. When you're done for the session, TEAR IT DOWN (see gcp/teardown.md)

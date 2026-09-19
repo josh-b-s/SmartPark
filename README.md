@@ -152,15 +152,56 @@ container starts. Swapping the model means re-uploading to the bucket and
 restarting the deployment (`kubectl rollout restart deployment
 smartpark-api`), not rebuilding the image.
 
-`k8s/hpa.yaml` (autoscaling) is included but should NOT be applied until
-after Locust benchmarking at fixed replica counts is done. See the
-comment at the top of that file for why, and use `kubectl scale
-deployment smartpark-api --replicas=N` to control replica count manually
-during benchmarking instead.
+`k8s/hpa.yaml` (autoscaling) is included and has been tested working: under
+sustained load it scaled 1 to 4 to 8 replicas within about 20 seconds. It
+is NOT applied by default, since it must be removed before Locust
+benchmarking at fixed replica counts (see the comment at the top of that
+file), otherwise the autoscaler fights your manual `kubectl scale`
+commands mid-test. Apply it for general use or for the interview demo:
+
+```bash
+kubectl apply -f k8s/hpa.yaml
+```
+
+Remove it before running controlled benchmarks:
+
+```bash
+kubectl delete -f k8s/hpa.yaml
+kubectl scale deployment smartpark-api --replicas=1
+```
+
+## Load testing (Locust)
+
+`locust/locustfile.py` simulates users hitting `find-carparks` (weighted
+5x) and `annotate-carpark` (1x). `locust/run_sweep.py` automates testing
+multiple concurrency levels against one fixed replica count in one
+command:
+
+```bash
+python locust/run_sweep.py --host http://EXTERNAL_IP --label replicas_1 --users 5 10 20 30
+```
+
+Full step-by-step (including per-replica-count warm-up, since each pod
+pays a one-time YOLO model load cost) is in `locust/README.md`. Results
+from the actual benchmarking run are saved under `locust/results/`.
+
+## Benchmark report
+
+`report/final_report_content.md` is the completed 500-word empirical
+report (results table, performance analysis, cost analysis).
+`report/figure1_latency_vs_users.png` and
+`report/figure2_throughput_vs_users.png` are the two required plots,
+generated from the same data in `locust/results/`.
+
+Headline findings: 1 to 2 replicas eliminated request failures seen under
+load but didn't raise max sustainable concurrency; 2 to 4 replicas
+genuinely doubled it; 4 to 8 replicas didn't move it further, evidence
+that the fixed 2-node cluster's CPU capacity, not replica count, was the
+real ceiling. See the report for full detail.
 
 ## Not done yet
 
-- Locust load testing at 1/2/4/8 replicas
-- The 500-word empirical benchmark report
 - Background cache/refresh for OPS-API-1 and the dashboard (see design
-  notes above)
+  notes above), currently they use randomised placeholder data rather
+  than live inference, by design, for scalability reasons explained
+  above.

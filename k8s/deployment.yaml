@@ -51,10 +51,11 @@ spec:
           volumeMounts:
             - name: model-volume
               mountPath: /app/model
-          # Modest requests/limits: e2-medium nodes have 2 vCPU / 4GB each,
-          # and ultralytics + torch inference is the heaviest thing this
-          # container does. Tune these based on what you observe in the
-          # Locust benchmarking step, worth reporting on in the write-up.
+          # Sized for e2-standard-4 nodes (4 vCPU / 16GB each): request is
+          # deliberately small so many pods can schedule, limit lets a
+          # single pod burst to use a whole node's cores under load. See
+          # the benchmark report for how these values were arrived at
+          # (CPU limit and machine type both measurably affect latency).
           resources:
             requests:
               cpu: "250m"
