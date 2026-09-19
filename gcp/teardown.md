@@ -1,26 +1,16 @@
-# Run this at the end of every session touching GCP.
-#
-# (Project ID, region and bucket names here are the original author's;
-# substitute your own, see the note at the top of gcp/commands.md.)
-#
-# The cluster and its LoadBalancer are the two things that cost money by
-# the hour, whether or not you're actively using them. Nothing else here
-# (Artifact Registry storage, the GCS bucket) costs meaningfully more than
-# a few cents sitting idle, so only the cluster needs deleting each time.
+# Teardown: run at the end of every GCP session
 
-## Delete the LoadBalancer service first (frees the external IP)
+The cluster and its load balancer bill by the hour whether or not they are used. Registry and bucket storage cost only cents while idle, so only the cluster needs deleting. Project, region and bucket names are the author's; substitute your own (see `commands.md`).
 
+```bash
+# 1. Delete the LoadBalancer service first (frees the external IP)
 kubectl delete -f k8s/service.yaml
 
-## Delete the whole cluster
-
+# 2. Delete the cluster
 gcloud container clusters delete smartpark-cluster --zone australia-southeast1-a --quiet
 
-## Confirm nothing billable is left running
-
+# 3. Confirm nothing billable remains (should print an empty list)
 gcloud container clusters list
-# Should print an empty list. If anything shows up, delete it too.
+```
 
-# Next session, just re-run steps 5-6 in gcp/commands.md (create cluster,
-# deploy) to bring it back. Steps 1-4 (repo, bucket, image push) only need
-# doing once, or again if you change the model/app code.
+Next session, re-run steps 5-6 of `commands.md` (cluster, deploy). Steps 1-4 (repo, bucket, image) are one-off, unless the model or app code changes.
